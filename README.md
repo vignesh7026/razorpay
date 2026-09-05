@@ -112,6 +112,36 @@ gracefully — the full loop works end to end either way, clearly labeled in
 the UI and in every audit record's `execution.provider` /
 `/api/narrative` `provider` field.
 
+## Deploying (Render)
+
+`render.yaml` at the repo root is a Render Blueprint defining both services.
+
+1. Push this repo to GitHub (already done if you're reading this on GitHub).
+2. On [Render](https://dashboard.render.com), **New +** → **Blueprint** →
+   connect this repo. Render reads `render.yaml` and proposes both services:
+   `revenue-recovery-backend` (Python web service) and
+   `revenue-recovery-frontend` (static site).
+3. Before the first deploy, open the backend service's **Environment** tab
+   and optionally set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
+   `ANTHROPIC_API_KEY` — leave them unset to run fully on the simulated
+   clients. Never commit real values; they're marked `sync: false` in the
+   blueprint specifically so Render prompts for them instead.
+4. After the backend deploys, copy its actual URL (Render assigns it, and
+   it may not exactly match the `revenue-recovery-backend.onrender.com`
+   guess in `render.yaml` if that name was taken). Update the frontend
+   service's `VITE_API_BASE_URL` env var to `<that-url>/api` and trigger a
+   manual redeploy of the frontend so the build picks it up.
+
+**Known limitation of this deployment shape:** the backend persists state
+(audit log, bandit learning, run history, escalation actions) as local
+JSONL/JSON files. Render's free-tier disk is ephemeral — it resets on every
+deploy and the instance spins down after ~15 minutes of inactivity, wiping
+that state. The app still works correctly after a cold start (every
+endpoint regenerates a fresh batch/report if the files are missing), it
+just won't remember bandit learning or escalation actions across a
+spin-down. A persistent disk (paid tier) or a real database would fix this;
+out of scope for a free-tier demo deployment.
+
 ## The six stopping rules (guardrails)
 
 | Rule | What it enforces |

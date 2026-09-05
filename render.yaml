@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: revenue-recovery-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ESCALATION_AMOUNT_THRESHOLD_INR
+        value: "5000"
+      # Optional: leave unset to run on SimulatedRazorpayClient / SimulatedLLMClient.
+      # Set these in the Render dashboard (Environment tab) -- never commit real values.
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  - type: web
+    name: revenue-recovery-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      # Must point at the backend service above's public URL + /api.
+      # Render assigns the URL when the backend service is first created;
+      # update this value (Environment tab) and trigger a redeploy if the
+      # backend's actual URL differs from this default guess.
+      - key: VITE_API_BASE_URL
+        value: https://revenue-recovery-backend.onrender.com/api
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -13,7 +13,13 @@ import type {
   SimulateResult,
 } from './types'
 
-const api = axios.create({ baseURL: '/api', timeout: 30000 })
+// In local dev this stays '/api' and Vite's proxy (vite.config.ts) forwards
+// it to the backend on :8000. In a deployed static build there is no dev
+// server to proxy through, so VITE_API_BASE_URL must be set at build time
+// to the deployed backend's full URL (see render.yaml).
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+
+const api = axios.create({ baseURL: API_BASE_URL, timeout: 30000 })
 
 export async function fetchReport(): Promise<Report> {
   const { data } = await api.get<Report>('/report')
