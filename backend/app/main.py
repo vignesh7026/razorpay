@@ -3,6 +3,8 @@ plus the "big swing" additions: LLM narratives, the human escalation inbox,
 live webhook ingestion, the adaptive intervention bandit, an Ask-the-Agent
 Q&A endpoint, and a one-pager export.
 """
+import threading
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -35,9 +37,37 @@ app.add_middleware(
 # doesn't re-spend an LLM call (or re-run the simulated template) each time.
 _narrative_cache: dict[str, dict] = {}
 
+# Starlette runs sync `def` routes in a thread pool, so concurrent requests
+# genuinely race -- most visibly, the frontend's Promise.all([fetchReport(),
+# fetchAuditLog()]) hitting a freshly-deployed (empty reports/) backend at
+# the same time, with both requests independently deciding "no data yet"
+# and calling run_pipeline(), interleaving writes to the same files. This
+# lock plus the double-checked REPORT_JSON_FILE guard makes "ensure the
+# pipeline has run" idempotent under concurrency: whichever request gets
+# the lock first runs it once, everyone else just waits and then reads.
+_pipeline_lock = threading.Lock()
+
 
 def _client_mode() -> str:
     return "RealRazorpayClient" if HAS_REAL_CREDENTIALS else "SimulatedRazorpayClient"
+
+
+def ensure_pipeline_has_run() -> None:
+    if REPORT_JSON_FILE.exists():
+        return
+    with _pipeline_lock:
+        if REPORT_JSON_FILE.exists():  # re-check: another thread may have just finished
+            return
+        run_pipeline()
+
+
+def run_pipeline_exclusive() -> dict:
+    """For the explicit POST /api/run-batch -- always re-runs, but still
+    takes the lock so it can't interleave with a concurrent lazy trigger
+    from another in-flight GET request.
+    """
+    with _pipeline_lock:
+        return run_pipeline()
 
 
 @app.get("/api/health")
@@ -51,8 +81,7 @@ def health():
 
 @app.get("/api/report")
 def get_report():
-    if not REPORT_JSON_FILE.exists():
-        run_pipeline()
+    ensure_pipeline_has_run()
     report = build_report()
     report["client_mode"] = _client_mode()
     return report
@@ -60,17 +89,15 @@ def get_report():
 
 @app.get("/api/audit-log")
 def get_audit_log():
+    ensure_pipeline_has_run()
     records = read_all_records()
-    if not records:
-        run_pipeline()
-        records = read_all_records()
     return {"count": len(records), "records": records}
 
 
 @app.post("/api/run-batch")
 def run_batch():
     try:
-        return run_pipeline()
+        return run_pipeline_exclusive()
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -112,6 +139,7 @@ class EscalationActionRequest(BaseModel):
 
 @app.get("/api/escalations")
 def get_escalations():
+    ensure_pipeline_has_run()
     records = [r for r in read_all_records() if r["outcome"] == "escalated"]
     actions = latest_action_by_transaction()
     items = []
@@ -182,10 +210,8 @@ class AskRequest(BaseModel):
 
 @app.post("/api/ask")
 def ask_agent(body: AskRequest):
+    ensure_pipeline_has_run()
     records = read_all_records()
-    if not records:
-        run_pipeline()
-        records = read_all_records()
     report = build_report(records)
     client = get_llm_client()
     result = client.answer_question(
@@ -201,10 +227,8 @@ def ask_agent(body: AskRequest):
 
 @app.get("/api/onepager")
 def get_onepager():
+    ensure_pipeline_has_run()
     records = read_all_records()
-    if not records:
-        run_pipeline()
-        records = read_all_records()
     report = build_report(records)
     client = get_llm_client()
     result = client.generate_onepager_html(report)
@@ -244,10 +268,8 @@ def get_simulate_defaults():
 
 @app.get("/api/customers")
 def get_customers():
+    ensure_pipeline_has_run()
     records = read_all_records()
-    if not records:
-        run_pipeline()
-        records = read_all_records()
     return {"customers": build_customer_summaries(records)}
 
 
@@ -267,8 +289,6 @@ def get_customer_detail(customer_id: str):
 
 @app.get("/api/run-history")
 def get_run_history():
+    ensure_pipeline_has_run()
     history = read_history()
-    if not history:
-        run_pipeline()
-        history = read_history()
     return {"count": len(history), "runs": history}

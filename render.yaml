@@ -27,12 +27,15 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     envVars:
-      # Must point at the backend service above's public URL + /api.
-      # Render assigns the URL when the backend service is first created;
-      # update this value (Environment tab) and trigger a redeploy if the
-      # backend's actual URL differs from this default guess.
+      # Must point at the backend service above's public URL + /api. Render
+      # appends a random suffix if the plain name is already taken (it was,
+      # for this project) -- always verify the backend's *actual* assigned
+      # URL in its dashboard page and match it here exactly. If you change
+      # this after the frontend's first build, you MUST trigger a manual
+      # redeploy of the frontend -- Vite bakes env vars in at build time,
+      # editing this value alone does nothing until a rebuild happens.
       - key: VITE_API_BASE_URL
-        value: https://revenue-recovery-backend.onrender.com/api
+        value: https://revenue-recovery-backend-n3kz.onrender.com/api
     routes:
       - type: rewrite
         source: /*
