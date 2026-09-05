@@ -1,0 +1,16 @@
+razorpay_test_api_keys*.csv
+*.csv
+
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/.env
+backend/data/batch.json
+backend/reports/*.jsonl
+backend/reports/*.json
+backend/reports/*.md
+
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
